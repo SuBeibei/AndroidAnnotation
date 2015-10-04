@@ -5,10 +5,7 @@ import com.androidannotation.processor.base.BaseProcessor;
 import com.squareup.javapoet.*;
 
 import javax.annotation.processing.RoundEnvironment;
-import javax.lang.model.element.Element;
-import javax.lang.model.element.ElementKind;
-import javax.lang.model.element.Modifier;
-import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.*;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import java.io.IOException;
@@ -70,13 +67,24 @@ public class EActivityProcessor extends BaseProcessor {
         String className = classElement.getSimpleName() + "_";
         String packageName = elementUtils.getPackageOf(classElement).getQualifiedName().toString();
 
+       /* int layoutId = classElement.getAnnotation(EActivity.class).value();
+        String layoutName = "";
+        TypeElement layoutElement = elementUtils.getTypeElement(packageName + ".R.layout");
+        for (Element e : layoutElement.getEnclosedElements()) {
+            VariableElement ve = (VariableElement)e;
+            if (ve.getConstantValue().equals(layoutId)) {
+                layoutName = ve.getSimpleName().toString();
+            }
+        }*/
+
         MethodSpec onCreate = MethodSpec.methodBuilder("onCreate")
                 .addAnnotation(Override.class)
                 .addModifiers(Modifier.PROTECTED)
                 .returns(TypeName.VOID)
                 .addParameter(ClassName.get("android.os", "Bundle"), "savedInstanceState")
                 .addStatement("super.onCreate(savedInstanceState)")
-                .addStatement("setContentView($L)", classElement.getAnnotation(EActivity.class).value())
+                //.addStatement("setContentView($L)", classElement.getAnnotation(EActivity.class).value())
+                //.addStatement("setContentView($S)", "R.layout." + layoutName)
                 .build();
 
         TypeSpec activity = TypeSpec.classBuilder(className)
@@ -86,5 +94,6 @@ public class EActivityProcessor extends BaseProcessor {
                 .build();
 
         JavaFile.builder(packageName, activity).build().writeTo(filer);
+
     }
 }
