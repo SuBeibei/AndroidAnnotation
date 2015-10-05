@@ -1,18 +1,25 @@
 package com.androidannotation.processor;
 
 import com.androidannotation.annotations.EActivity;
+import com.androidannotation.annotations.ViewById;
 import com.androidannotation.processor.base.BaseProcessor;
-import com.squareup.javapoet.*;
+import com.androidannotation.processor.bean.ActivityInfo;
 
 import javax.annotation.processing.RoundEnvironment;
-import javax.lang.model.element.*;
+import javax.lang.model.element.Element;
+import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.Modifier;
+import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 
 public class EActivityProcessor extends BaseProcessor {
+    private Map<String, ActivityInfo> activities = new LinkedHashMap<>();
 
     @Override
     public Set<String> getSupportedAnnotationTypes() {
@@ -25,13 +32,25 @@ public class EActivityProcessor extends BaseProcessor {
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
         for (Element annotatedElement : roundEnv.getElementsAnnotatedWith(EActivity.class)) {
             if (isValid(annotatedElement)) {
-                try {
-                    generateCode(annotatedElement);
-                } catch (IOException e) {
-                    error(annotatedElement, e.getMessage());
-                }
+                TypeElement activityElement = (TypeElement)annotatedElement;
+                ActivityInfo activityInfo = new ActivityInfo(activityElement);
+                processActivityElement(activityInfo);
+                activities.put(activityElement.getQualifiedName().toString(), activityInfo);
             }
         }
+
+        for (ActivityInfo activityInfo : activities.values()) {
+            try {
+                activityInfo.generateCode(elementUtils, typeUtils, filer);
+            } catch (IOException e) {
+                error(activityInfo.getActivityElement(), e.getMessage());
+            } catch (ClassNotFoundException e) {
+                error(activityInfo.getActivityElement(), e.getMessage());
+            }
+        }
+
+        activities.clear();
+
         return true;
     }
 
@@ -48,8 +67,8 @@ public class EActivityProcessor extends BaseProcessor {
 
             if (superClassType.getKind() == TypeKind.NONE) {
                 error(element,
-                        "The class %s annotated width @%s must inherit from %s",
-                        element.getSimpleName().toString(), "android.app.Activity");
+                        "The class %s annotated with @%s must inherit from %s",
+                        element.getSimpleName().toString(), "@EActivity", "android.app.Activity");
                 return false;
             }
 
@@ -62,38 +81,37 @@ public class EActivityProcessor extends BaseProcessor {
         return true;
     }
 
-    private void generateCode(Element element) throws IOException {
-        TypeElement classElement = (TypeElement)element;
-        String className = classElement.getSimpleName() + "_";
-        String packageName = elementUtils.getPackageOf(classElement).getQualifiedName().toString();
+    private void processActivityElement(ActivityInfo activityInfo) {
+        TypeElement activityElement = activityInfo.getActivityElement();
+        for (Element element : elementUtils.getAllMembers(activityElement)) {
+            if (element.getKind() == ElementKind.FIELD) {
+                ViewById annotation = element.getAnnotation(ViewById.class);
+                if (annotation != null) {
+                    // 必须继承View
+                    TypeElement currentElement = (TypeElement)typeUtils.asElement(element.asType());
+                    while (true) {
+                        TypeMirror superClassType = currentElement.getSuperclass();
 
-       /* int layoutId = classElement.getAnnotation(EActivity.class).value();
-        String layoutName = "";
-        TypeElement layoutElement = elementUtils.getTypeElement(packageName + ".R.layout");
-        for (Element e : layoutElement.getEnclosedElements()) {
-            VariableElement ve = (VariableElement)e;
-            if (ve.getConstantValue().equals(layoutId)) {
-                layoutName = ve.getSimpleName().toString();
+                        if (superClassType.getKind() == TypeKind.NONE) {
+                            error(element,
+                                    "The field %s annotated with @ViewById must inherit from %s",
+                                    element.getSimpleName().toString(), "android.view.View");
+                        }
+
+                        if (superClassType.toString().equals("android.view.View")) {
+                            break;
+                        }
+                        currentElement = (TypeElement)typeUtils.asElement(superClassType);
+                    }
+                    // 不能用private修饰
+                    Set<javax.lang.model.element.Modifier> modifiers  = element.getModifiers();
+                    if (modifiers.contains(Modifier.PRIVATE)) {
+                        error(element, "The field %s annotated with @ViewById shouldn't be modified by private", element.getSimpleName());
+                    } else {
+                        activityInfo.addViewElement(annotation, element);
+                    }
+                }
             }
-        }*/
-
-        MethodSpec onCreate = MethodSpec.methodBuilder("onCreate")
-                .addAnnotation(Override.class)
-                .addModifiers(Modifier.PROTECTED)
-                .returns(TypeName.VOID)
-                .addParameter(ClassName.get("android.os", "Bundle"), "savedInstanceState")
-                .addStatement("super.onCreate(savedInstanceState)")
-                //.addStatement("setContentView($L)", classElement.getAnnotation(EActivity.class).value())
-                //.addStatement("setContentView($S)", "R.layout." + layoutName)
-                .build();
-
-        TypeSpec activity = TypeSpec.classBuilder(className)
-                .addModifiers(Modifier.PUBLIC)
-                .superclass(ClassName.get(classElement))
-                .addMethod(onCreate)
-                .build();
-
-        JavaFile.builder(packageName, activity).build().writeTo(filer);
-
+        }
     }
 }
