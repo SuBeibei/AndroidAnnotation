@@ -1,15 +1,13 @@
 package com.androidannotation.processor;
 
+import com.androidannotation.annotations.AfterViewInject;
 import com.androidannotation.annotations.EActivity;
 import com.androidannotation.annotations.ViewById;
 import com.androidannotation.processor.base.BaseProcessor;
 import com.androidannotation.processor.bean.ActivityInfo;
 
 import javax.annotation.processing.RoundEnvironment;
-import javax.lang.model.element.Element;
-import javax.lang.model.element.ElementKind;
-import javax.lang.model.element.Modifier;
-import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.*;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import java.io.IOException;
@@ -85,32 +83,58 @@ public class EActivityProcessor extends BaseProcessor {
         TypeElement activityElement = activityInfo.getActivityElement();
         for (Element element : elementUtils.getAllMembers(activityElement)) {
             if (element.getKind() == ElementKind.FIELD) {
-                ViewById annotation = element.getAnnotation(ViewById.class);
-                if (annotation != null) {
-                    // 必须继承View
-                    TypeElement currentElement = (TypeElement)typeUtils.asElement(element.asType());
-                    while (true) {
-                        TypeMirror superClassType = currentElement.getSuperclass();
-
-                        if (superClassType.getKind() == TypeKind.NONE) {
-                            error(element,
-                                    "The field %s annotated with @ViewById must inherit from %s",
-                                    element.getSimpleName().toString(), "android.view.View");
-                        }
-
-                        if (superClassType.toString().equals("android.view.View")) {
-                            break;
-                        }
-                        currentElement = (TypeElement)typeUtils.asElement(superClassType);
-                    }
-                    // 不能用private修饰
-                    Set<javax.lang.model.element.Modifier> modifiers  = element.getModifiers();
-                    if (modifiers.contains(Modifier.PRIVATE)) {
-                        error(element, "The field %s annotated with @ViewById shouldn't be modified by private", element.getSimpleName());
-                    } else {
-                        activityInfo.addViewElement(annotation, element);
-                    }
+                processViewById(element, activityInfo);
+            } else if (element.getKind() == ElementKind.METHOD) {
+                ExecutableElement executableElement = (ExecutableElement)element;
+                if (element.getAnnotation(AfterViewInject.class) != null) {
+                    processAfterViewInject(executableElement, activityInfo);
                 }
+            }
+        }
+    }
+
+    private void processAfterViewInject(ExecutableElement executableElement, ActivityInfo activityInfo) {
+        Set<Modifier> modifiers = executableElement.getModifiers();
+        // 不能用private修饰
+        if (modifiers.contains(Modifier.PRIVATE)) {
+            error(executableElement, "the method %s annotated with @AfterViewInject can't be modified by private.", executableElement.getSimpleName().toString());
+        }
+        // 没有参数
+        if (executableElement.getParameters().size() != 0) {
+            error(executableElement, "the method %s annotated with @AfterViewInject can't be has paramters", executableElement.getSimpleName().toString());
+        }
+        // 返回值为void
+        if (executableElement.getReturnType().getKind() != TypeKind.VOID) {
+            error(executableElement, "the method %s annotated with @AfterViewInject must return void", executableElement.getSimpleName().toString());
+        }
+        activityInfo.addAfterViewInjectMethod(executableElement);
+    }
+
+    private void processViewById(Element element, ActivityInfo activityInfo) {
+        ViewById annotation = element.getAnnotation(ViewById.class);
+        if (annotation != null) {
+            // 必须继承View
+            TypeElement currentElement = (TypeElement)typeUtils.asElement(element.asType());
+            while (true) {
+                TypeMirror superClassType = currentElement.getSuperclass();
+
+                if (superClassType.getKind() == TypeKind.NONE) {
+                    error(element,
+                            "The field %s annotated with @ViewById must inherit from %s",
+                            element.getSimpleName().toString(), "android.view.View");
+                }
+
+                if (superClassType.toString().equals("android.view.View")) {
+                    break;
+                }
+                currentElement = (TypeElement)typeUtils.asElement(superClassType);
+            }
+            // 不能用private修饰
+            Set<javax.lang.model.element.Modifier> modifiers  = element.getModifiers();
+            if (modifiers.contains(Modifier.PRIVATE)) {
+                error(element, "The field %s annotated with @ViewById shouldn't be modified by private", element.getSimpleName());
+            } else {
+                activityInfo.addViewElement(annotation, element);
             }
         }
     }
