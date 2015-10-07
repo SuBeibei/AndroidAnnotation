@@ -1,5 +1,6 @@
 package com.androidannotation.processor.bean;
 
+import com.androidannotation.annotations.Click;
 import com.androidannotation.annotations.EActivity;
 import com.androidannotation.annotations.ViewById;
 import com.squareup.javapoet.*;
@@ -24,6 +25,8 @@ public class ActivityInfo {
 
     private List<ExecutableElement> afterViewInjectMethods = new LinkedList<>();
 
+    private Map<ExecutableElement, Click> clickMethods = new LinkedHashMap<>();
+
     public ActivityInfo(TypeElement typeElement) {
         activityElement = typeElement;
     }
@@ -38,6 +41,10 @@ public class ActivityInfo {
 
     public void addAfterViewInjectMethod(ExecutableElement executableElement) {
         afterViewInjectMethods.add(executableElement);
+    }
+
+    public void addClickMethod(ExecutableElement executableElement, Click annotation) {
+        clickMethods.put(executableElement, annotation);
     }
 
     public void generateCode(Elements elementUtils, Types typeUtils, Filer filer) throws IOException, ClassNotFoundException {
@@ -67,6 +74,21 @@ public class ActivityInfo {
 
         for (ExecutableElement executableElement : afterViewInjectMethods) {
             onCreateBuilder.addStatement("$L()", executableElement.getSimpleName().toString());
+        }
+        onCreateBuilder.addCode("\n");
+
+        TypeName viewTypeName = ClassName.get(elementUtils.getTypeElement("android.view.View"));
+        for (Map.Entry<ExecutableElement, Click> entry : clickMethods.entrySet()) {
+            for (int id : entry.getValue().value()) {
+                onCreateBuilder.addStatement(
+                        "findViewById($L).setOnClickListener(new $T.OnClickListener() {\n" +
+                        "            @Override\n" +
+                        "            public void onClick($T view) {\n" +
+                        "               $L(view);\n" +
+                        "            }\n" +
+                        "        })"
+                , id, viewTypeName, viewTypeName, entry.getKey().getSimpleName().toString());
+            }
         }
 
         MethodSpec onCreate = onCreateBuilder.build();

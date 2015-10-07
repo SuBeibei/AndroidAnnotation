@@ -1,6 +1,7 @@
 package com.androidannotation.processor;
 
 import com.androidannotation.annotations.AfterViewInject;
+import com.androidannotation.annotations.Click;
 import com.androidannotation.annotations.EActivity;
 import com.androidannotation.annotations.ViewById;
 import com.androidannotation.processor.base.BaseProcessor;
@@ -10,6 +11,7 @@ import javax.annotation.processing.RoundEnvironment;
 import javax.lang.model.element.*;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
+import javax.tools.Diagnostic;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -59,22 +61,12 @@ public class EActivityProcessor extends BaseProcessor {
             return false;
         }
         // 必须继承Activity
-        TypeElement currentElement = (TypeElement)element;
-        while (true) {
-            TypeMirror superClassType = currentElement.getSuperclass();
-
-            if (superClassType.getKind() == TypeKind.NONE) {
-                error(element,
-                        "The class %s annotated with @%s must inherit from %s",
-                        element.getSimpleName().toString(), "@EActivity", "android.app.Activity");
-                return false;
-            }
-
-            if (superClassType.toString().equals("android.app.Activity")) {
-                break;
-            }
-
-            currentElement = (TypeElement)typeUtils.asElement(superClassType);
+        TypeMirror activityTypeMirror = elementUtils.getTypeElement("android.app.Activity").asType();
+        if (!typeUtils.isSubtype(element.asType(), activityTypeMirror)) {
+            error(element,
+                    "The class %s annotated with @%s must inherit from %s",
+                    element.getSimpleName().toString(), "@EActivity", "android.app.Activity");
+            return false;
         }
         return true;
     }
@@ -88,20 +80,43 @@ public class EActivityProcessor extends BaseProcessor {
                 ExecutableElement executableElement = (ExecutableElement)element;
                 if (element.getAnnotation(AfterViewInject.class) != null) {
                     processAfterViewInject(executableElement, activityInfo);
+                } else if (element.getAnnotation(Click.class) != null) {
+                    processClick(executableElement, activityInfo);
                 }
             }
         }
     }
 
-    private void processAfterViewInject(ExecutableElement executableElement, ActivityInfo activityInfo) {
-        Set<Modifier> modifiers = executableElement.getModifiers();
+    private void processClick(ExecutableElement executableElement, ActivityInfo activityInfo) {
         // 不能用private修饰
+        Set<Modifier> modifiers = executableElement.getModifiers();
+        if (modifiers.contains(Modifier.PRIVATE)) {
+            error(executableElement, "the method %s annotated with @Click can't be modified by private.", executableElement.getSimpleName().toString());
+        }
+        // 没有参数
+        if (executableElement.getParameters().size() != 1 ) {
+            error(executableElement, "the method %s annotated with @Click can't have parameters", executableElement.getSimpleName().toString());
+        }
+        TypeMirror viewTypeMirror = elementUtils.getTypeElement("android.view.View").asType();
+        if (!typeUtils.isSubtype(executableElement.getParameters().get(0).asType(), viewTypeMirror)) {
+            error(executableElement, "the only one parameter of the method %s annotated with @Click must be subtype of android.view.View", executableElement.getSimpleName().toString());
+        }
+        // 返回值为void
+        if (executableElement.getReturnType().getKind() != TypeKind.VOID) {
+            error(executableElement, "the method %s annotated with @Click must return void", executableElement.getSimpleName().toString());
+        }
+        activityInfo.addClickMethod(executableElement, executableElement.getAnnotation(Click.class));
+    }
+
+    private void processAfterViewInject(ExecutableElement executableElement, ActivityInfo activityInfo) {
+        // 不能用private修饰
+        Set<Modifier> modifiers = executableElement.getModifiers();
         if (modifiers.contains(Modifier.PRIVATE)) {
             error(executableElement, "the method %s annotated with @AfterViewInject can't be modified by private.", executableElement.getSimpleName().toString());
         }
         // 没有参数
         if (executableElement.getParameters().size() != 0) {
-            error(executableElement, "the method %s annotated with @AfterViewInject can't be has paramters", executableElement.getSimpleName().toString());
+            error(executableElement, "the method %s annotated with @AfterViewInject can't have parameters", executableElement.getSimpleName().toString());
         }
         // 返回值为void
         if (executableElement.getReturnType().getKind() != TypeKind.VOID) {
@@ -114,20 +129,11 @@ public class EActivityProcessor extends BaseProcessor {
         ViewById annotation = element.getAnnotation(ViewById.class);
         if (annotation != null) {
             // 必须继承View
-            TypeElement currentElement = (TypeElement)typeUtils.asElement(element.asType());
-            while (true) {
-                TypeMirror superClassType = currentElement.getSuperclass();
-
-                if (superClassType.getKind() == TypeKind.NONE) {
-                    error(element,
-                            "The field %s annotated with @ViewById must inherit from %s",
-                            element.getSimpleName().toString(), "android.view.View");
-                }
-
-                if (superClassType.toString().equals("android.view.View")) {
-                    break;
-                }
-                currentElement = (TypeElement)typeUtils.asElement(superClassType);
+            TypeMirror viewTypeMirror = elementUtils.getTypeElement("android.view.View").asType();
+            if (!typeUtils.isSubtype(element.asType(), viewTypeMirror)) {
+                error(element,
+                        "The field %s annotated with @ViewById must inherit from %s",
+                        element.getSimpleName().toString(), "android.view.View");
             }
             // 不能用private修饰
             Set<javax.lang.model.element.Modifier> modifiers  = element.getModifiers();
